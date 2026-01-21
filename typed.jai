@@ -633,6 +633,16 @@ fill_member_table :: (table: *Table(string, Member_Offset), info: *Type_Info_Str
 
 parse_object_as_table :: (str: string, slot: *u8, $T: Type, value_info: *Type_Info, ignore_unknown: bool, rename: Rename_Proc, float_handling: Special_Float_Handling) -> remainder: string, success: bool {
 
+	IS_TABLE :: #run begins_with(sprint("%", T), "Table(");
+	IS_POINTER_VALUE_TYPE :: #run -> bool {
+
+		#if IS_TABLE {
+			return type_info(T.Value_Type).type == .POINTER;
+		} else {
+			return false;
+		}
+	};
+
 	assert(str[0] == #char "{", "Invalid object start %", str);
 	remainder := advance(str);
 	remainder = trim_left(remainder, WHITESPACE_CHARS);
@@ -642,16 +652,6 @@ parse_object_as_table :: (str: string, slot: *u8, $T: Type, value_info: *Type_In
 		remainder = advance(remainder);
 		return remainder, true;
 	}
-
-	IS_TABLE :: #run begins_with(sprint("%", T), "Table(");
-	IS_POINTER_VALUE_TYPE :: #run -> bool {
-
-		#if IS_TABLE {
-			return type_info(T.Value_Type).type == .POINTER;
-		}
-
-		return false;
-	};
 
 	#if IS_TABLE {
 		table := slot.(*Table(string, T.Value_Type));
