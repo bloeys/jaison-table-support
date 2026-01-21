@@ -329,6 +329,11 @@ main :: () {
     report_memory_leaks();
 
     {
+        Test_Struct :: struct {
+            table: Table(string, struct{num: s16;});
+            other: int;
+        }
+
         TABLE_JSON :: #string EOF
         {
           table: {"1": {"num":1}, "2": {"num":3}, "3": {"num":5}},
@@ -337,7 +342,7 @@ main :: () {
         EOF
 
         // Nested tables are NOT supported
-		success, result := json_parse_string(TABLE_JSON, struct{table: Table(string, struct{num: s16;}); other: int;});
+		success, result := json_parse_string(TABLE_JSON, Test_Struct);
 		defer {
             for val, key: result.table {
                 free(key);
