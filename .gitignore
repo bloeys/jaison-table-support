@@ -3,3 +3,5 @@
 /modules
 examples/example
 tests
+tests.exe
+tests.pdb
