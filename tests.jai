@@ -251,4 +251,105 @@ main :: () {
 
     log("Report after messages:");
     report_memory_leaks();
+
+    {
+        TABLE_JSON :: #string EOF
+        {"1": 1, "2": 3, "3": 5}
+        EOF
+
+		success, result := json_parse_string(TABLE_JSON, Table(string, int));
+		defer {
+            for val, key: result free(key);
+            deinit(*result);
+        }
+
+        print("\ntable1:\n");
+        for val, key: result print("key=%, value=%\n", key, val);
+	}
+    log("Report after table1:");
+    report_memory_leaks();
+
+    {
+        TABLE_JSON :: #string EOF
+        {"1": 1, "2": 3, "3": 5}
+        EOF
+
+		success, result := json_parse_string(TABLE_JSON, Table(string, *int));
+		defer {
+            for val, key: result {
+                free(key);
+                free(val);
+            }
+            deinit(*result);
+        }
+
+        print("\ntable2:\n");
+        for val, key: result print("key=%, value=%\n", key, val.*);
+	}
+    log("Report after table2:");
+    report_memory_leaks();
+
+    {
+        TABLE_JSON :: #string EOF
+        {"1": {"num":1}, "2": {"num":3}, "3": {"num":5}}
+        EOF
+
+		success, result := json_parse_string(TABLE_JSON, Table(string, struct{num: s16;}));
+		defer {
+            for val, key: result {
+                free(key);
+            }
+            deinit(*result);
+        }
+
+        print("\ntable3:\n");
+        for val, key: result print("key=%, value=%\n", key, val);
+	}
+    log("Report after table3:");
+    report_memory_leaks();
+
+    {
+        TABLE_JSON :: #string EOF
+        {"1": {"num":1}, "2": {"num":3}, "3": {"num":5}}
+        EOF
+
+		success, result := json_parse_string(TABLE_JSON, Table(string, *struct{num: s16;}));
+		defer {
+            for val, key: result {
+                free(key);
+                free(val);
+            }
+            deinit(*result);
+        }
+
+        print("\ntable4:\n");
+        for val, key: result print("key=%, value=%\n", key, val.*);
+	}
+    log("Report after table4:");
+    report_memory_leaks();
+
+    {
+        TABLE_JSON :: #string EOF
+        {
+          table: {"1": {"num":1}, "2": {"num":3}, "3": {"num":5}},
+          other: 135813
+        }
+        EOF
+
+        // Nested tables are NOT supported
+		success, result := json_parse_string(TABLE_JSON, struct{table: Table(string, struct{num: s16;}); other: int;});
+		defer {
+            for val, key: result.table {
+                free(key);
+            }
+            deinit(*result.table);
+        }
+
+        print("\ntable5:\n");
+        for val, key: result.table print("key=%, value=%\n", key, val);
+
+        print("other = %\n", result.other);
+	}
+    log("Report after table5:");
+    report_memory_leaks();
 }

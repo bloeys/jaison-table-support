@@ -8,7 +8,7 @@ json_parse_string :: (content: string, $T: Type, ignore_unknown := true, rename 
 	if !content then return false, result;
 
 	info := type_info(T);
-	remainder, success := parse_value(content, cast(*u8)*result, info, ignore_unknown, "", rename=rename, float_handling=float_handling);
+	remainder, success := parse_value(content, cast(*u8)*result, T, info, ignore_unknown, "", rename=rename, float_handling=float_handling);
 	if !success		return false, result;
 
 	remainder = trim_left(remainder, WHITESPACE_CHARS);
@@ -173,7 +173,7 @@ is_generic_json_value :: (info: *Type_Info) -> bool {
 	return info == type_info(JSON_Value);
 }
 
-parse_value :: (to_parse: string, slot: *u8, info: *Type_Info, ignore_unknown: bool, field_name: string, rename: Rename_Proc, float_handling: Special_Float_Handling) -> remainder: string, success: bool {
+parse_value :: (to_parse: string, slot: *u8, $T: Type, info: *Type_Info, ignore_unknown: bool, field_name: string, rename: Rename_Proc, float_handling: Special_Float_Handling) -> remainder: string, success: bool {
 	remainder := trim_left(to_parse, WHITESPACE_CHARS);
     if !remainder return "", false;
 	success := true;
@@ -202,31 +202,31 @@ parse_value :: (to_parse: string, slot: *u8, info: *Type_Info, ignore_unknown: b
 			return null, false, false, value_info, false;
 		}
 
-        // @Incomplete: Add support for Tables of Any Types.
-        // Currently all the `Type_Info` handling is happening at
-        // Runtime. But supporting Tables of Values that differ in
-        // size requires polymorphing such operations as `table_add()`
-        // which means we need to know the `Type_Info`-s at compile
-        // time. Until the type.jai is refactored to pass all the
-        // necessary `Type_Info` with `$` we can only offer Table of
-        // Pointers.
-        // - rexim 2026-01-20
-		is_type_info_table_of_pointers :: (info: *Type_Info) -> (value_info: *Type_Info_Pointer) {
+		is_type_info_table :: (info: *Type_Info) -> (value_info: *Type_Info) {
+
 			if (info.type != .STRUCT) return null;
-			struct_info := cast(*Type_Info_Struct)info;
-			if (struct_info.name != "Table") return null;
+
+			struct_info := info.(*Type_Info_Struct);
+			if struct_info.name != "Table" return null;
+
 			for struct_info.specified_parameters {
+
 				if it.name == "Value_Type" {
-					if (it.type.type == .TYPE) {
-						value_info := (cast(**Type_Info)(struct_info.constant_storage.data + it.offset_into_constant_storage)).*;
-						if value_info.type != .POINTER return null;
-						return cast(*Type_Info_Pointer)value_info;
+
+					if it.type.type != .TYPE {
+						// Value_Type struct param that is not a Type means we are dealing with something unexpected
+						break;
 					}
+
+					value_info := (cast(**Type_Info)(struct_info.constant_storage.data + it.offset_into_constant_storage)).*;
+					return value_info;
 				}
 			}
+
 			return null;
 		}
-		member_info := is_type_info_table_of_pointers(value_info);
+
+		member_info := is_type_info_table(value_info);
 		if member_info {
 			return slot, true, false, member_info, true;
 		}
@@ -362,7 +362,7 @@ parse_value :: (to_parse: string, slot: *u8, info: *Type_Info, ignore_unknown: b
 					value, remainder, success = parse_array(remainder);
 					json_set(cast(*JSON_Value)value_slot, value);
 				} else {
-					remainder, success = parse_array(remainder, value_slot, cast(*Type_Info_Array) value_info, ignore_unknown, rename=rename, float_handling=float_handling);
+					remainder, success = parse_array(remainder, value_slot, T, cast(*Type_Info_Array) value_info, ignore_unknown, rename=rename, float_handling=float_handling);
 				}
 			}
 		case #char "{";
@@ -378,9 +378,9 @@ parse_value :: (to_parse: string, slot: *u8, info: *Type_Info, ignore_unknown: b
 					value.*, remainder, success = parse_object(remainder);
 					json_set(cast(*JSON_Value)value_slot, value);
 				} else if is_table {
-					remainder, success = parse_object_as_table_of_pointers(remainder, value_slot, cast(*Type_Info_Pointer)value_info, ignore_unknown, rename=rename, float_handling=float_handling);
+					remainder, success = parse_object_as_table(remainder, value_slot, T, value_info, ignore_unknown, rename=rename, float_handling=float_handling);
 				} else {
-					remainder, success = parse_object(remainder, value_slot, cast(*Type_Info_Struct) value_info, ignore_unknown, rename=rename, float_handling=float_handling);
+					remainder, success = parse_object(remainder, value_slot, T, cast(*Type_Info_Struct) value_info, ignore_unknown, rename=rename, float_handling=float_handling);
 				}
 			}
 		case;
@@ -494,7 +494,7 @@ parse_enum_string :: (str: string, slot: *u8, info_enum: *Type_Info_Enum) -> rem
     return remainder, success;
 }
 
-parse_array :: (str: string, slot: *u8, info: *Type_Info_Array, ignore_unknown: bool, rename: Rename_Proc, float_handling: Special_Float_Handling) -> remainder: string, success: bool {
+parse_array :: (str: string, slot: *u8, $T: Type, info: *Type_Info_Array, ignore_unknown: bool, rename: Rename_Proc, float_handling: Special_Float_Handling) -> remainder: string, success: bool {
 	element_size: int;
 	if slot {
 		element_size = info.element_type.runtime_size;
@@ -551,7 +551,7 @@ parse_array :: (str: string, slot: *u8, info: *Type_Info_Array, ignore_unknown: 
 				memset(element_data, 0, element_size);
 			}
 
-			remainder, success = parse_value(remainder, element_data, info.element_type, ignore_unknown, "", rename=rename, float_handling=float_handling);
+			remainder, success = parse_value(remainder, element_data, T, info.element_type, ignore_unknown, "", rename=rename, float_handling=float_handling);
             if !success	break;
 
 			remainder = trim_left(remainder, WHITESPACE_CHARS);
@@ -600,7 +600,7 @@ parse_array :: (str: string, slot: *u8, info: *Type_Info_Array, ignore_unknown: 
             }
             first = false;
 
-			remainder, success = parse_value(remainder, null, null, ignore_unknown, "", rename=rename, float_handling=float_handling);
+			remainder, success = parse_value(remainder, null, T, null, ignore_unknown, "", rename=rename, float_handling=float_handling);
 			if !success	return remainder, false;
 
 			remainder = trim_left(remainder, WHITESPACE_CHARS);
@@ -631,7 +631,8 @@ fill_member_table :: (table: *Table(string, Member_Offset), info: *Type_Info_Str
     }
 }
 
-parse_object_as_table_of_pointers :: (str: string, slot: *u8, value_info: *Type_Info_Pointer, ignore_unknown: bool, rename: Rename_Proc, float_handling: Special_Float_Handling) -> remainder: string, success: bool {
+parse_object_as_table :: (str: string, slot: *u8, $T: Type, value_info: *Type_Info, ignore_unknown: bool, rename: Rename_Proc, float_handling: Special_Float_Handling) -> remainder: string, success: bool {
+
 	assert(str[0] == #char "{", "Invalid object start %", str);
 	remainder := advance(str);
 	remainder = trim_left(remainder, WHITESPACE_CHARS);
@@ -642,40 +643,65 @@ parse_object_as_table_of_pointers :: (str: string, slot: *u8, value_info: *Type_
 		return remainder, true;
 	}
 
-	table := cast(*Table(string, *void))slot;
+	IS_TABLE :: #run begins_with(sprint("%", T), "Table(");
+	IS_POINTER_VALUE_TYPE :: #run -> bool {
 
-	while true {
-		if !remainder || remainder[0] != #char "\""	return remainder, false;
+		#if IS_TABLE {
+			return type_info(T.Value_Type).type == .POINTER;
+		}
 
-		key: string;
-		success: bool;
-		key, remainder, success = parse_string(remainder);
-		if !success		return remainder, false;
-		defer free(key);
+		return false;
+	};
 
-		remainder = trim_left(remainder, WHITESPACE_CHARS);
-		if !remainder || remainder[0] != #char ":"	return remainder, false;
+	#if IS_TABLE {
+		table := slot.(*Table(string, T.Value_Type));
+
+		while true {
+			if !remainder || remainder[0] != #char "\""	return remainder, false;
+
+			key: string;
+			success: bool;
+			key, remainder, success = parse_string(remainder);
+			if !success		return remainder, false;
+			defer free(key);
+
+			remainder = trim_left(remainder, WHITESPACE_CHARS);
+			if !remainder || remainder[0] != #char ":"	return remainder, false;
+			remainder = advance(remainder);
+
+			#if IS_POINTER_VALUE_TYPE {
+				member_info := value_info.(*Type_Info_Pointer).pointer_to;
+				member_slot := NewArray(member_info.runtime_size, u8).data;
+				remainder, success = parse_value(remainder, member_slot, T, member_info, ignore_unknown, key, rename, float_handling=float_handling);
+				if !success		return remainder, false;
+
+				table_add(table, copy_string(key), member_slot.(T.Value_Type));
+			} else {
+
+				member_info := value_info;
+				member_slot: T.Value_Type;
+				remainder, success = parse_value(remainder, (*member_slot).(*u8), T, member_info, ignore_unknown, key, rename, float_handling=float_handling);
+				if !success		return remainder, false;
+
+				table_add(table, copy_string(key), member_slot);
+			}
+
+			remainder = trim_left(remainder, WHITESPACE_CHARS);
+			if !remainder || remainder[0] != #char ","	break;
+			remainder = advance(remainder);
+			remainder = trim_left(remainder, WHITESPACE_CHARS);
+		}
+
+		if !remainder || remainder[0] != #char "}"	return remainder, false;
 		remainder = advance(remainder);
-
-		member_info := value_info.pointer_to;
-		member_slot := NewArray(member_info.runtime_size, u8).data;
-		remainder, success = parse_value(remainder, member_slot, member_info, ignore_unknown, key, rename, float_handling=float_handling);
-		if !success		return remainder, false;
-
-		table_add(table, copy_string(key), member_slot);
-
-		remainder = trim_left(remainder, WHITESPACE_CHARS);
-		if !remainder || remainder[0] != #char ","	break;
-		remainder = advance(remainder);
-		remainder = trim_left(remainder, WHITESPACE_CHARS);
+		return remainder, true;
+	} else {
+		// Should never happen
+		return "", false;
 	}
-
-	if !remainder || remainder[0] != #char "}"	return remainder, false;
-	remainder = advance(remainder);
-	return remainder, true;
 }
 
-parse_object :: (str: string, slot: *u8, info: *Type_Info_Struct, ignore_unknown: bool, rename: Rename_Proc, float_handling: Special_Float_Handling) -> remainder: string, success: bool {
+parse_object :: (str: string, slot: *u8, $T: Type, info: *Type_Info_Struct, ignore_unknown: bool, rename: Rename_Proc, float_handling: Special_Float_Handling) -> remainder: string, success: bool {
 	assert(str[0] == #char "{", "Invalid object start %", str);
 	remainder := advance(str);
 	remainder = trim_left(remainder, WHITESPACE_CHARS);
@@ -719,7 +745,7 @@ parse_object :: (str: string, slot: *u8, info: *Type_Info_Struct, ignore_unknown
 		if !remainder || remainder[0] != #char ":"	return remainder, false;
 		remainder = advance(remainder);
 
-		remainder, success = parse_value(remainder, member_slot, member_info, ignore_unknown, key, rename, float_handling=float_handling);
+		remainder, success = parse_value(remainder, member_slot, T, member_info, ignore_unknown, key, rename, float_handling=float_handling);
 		if !success		return remainder, false;
 
 		remainder = trim_left(remainder, WHITESPACE_CHARS);
